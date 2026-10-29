@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ثبت سفارش مشتریان</title>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<style>
+  :root{
+    --bg:#f3f4f8; --card:#fff; --text:#1f2937; --muted:#6b7280;
+    --idle:#e5e7eb; --draft:#fbbf24; --done:#22c55e; --active:#3b82f6;
+    --prod-off:#e0e7ff; --prod-on:#f97316;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  #login{position:fixed;inset:0;background:#1e293b;z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}
+  #login form{background:#fff;border-radius:16px;padding:28px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:12px}
+  #login h2{margin:0;text-align:center}
+  #login input{padding:11px;border:1px solid #cbd5e1;border-radius:8px;font-family:inherit;font-size:15px;direction:ltr;text-align:left}
+  #loginErr{color:#dc2626;font-size:13px;min-height:18px;text-align:center}
+  body{margin:0;font-family:'Vazirmatn',Tahoma,sans-serif;background:var(--bg);color:var(--text)}
+  header{background:#1e293b;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+  header h1{margin:0;font-size:18px}
+  #status{font-size:12px;padding:4px 10px;border-radius:20px;background:#334155}
+  main{max-width:1100px;margin:0 auto;padding:16px}
+  section{background:var(--card);border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  h2{margin:0 0 12px;font-size:16px}
+  .legend{display:flex;gap:12px;font-size:12px;color:#cbd5e1;flex-wrap:wrap}
+  .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-left:4px;vertical-align:middle}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:14px;padding:6px}
+  .empty{color:var(--muted);font-size:13px;padding:8px}
+
+  .tile{position:relative;min-height:84px;border-radius:10px;padding:10px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;cursor:pointer;user-select:none;transition:.15s;border:2px solid transparent;font-weight:600}
+  .tile::after{content:"";position:absolute;left:-9px;top:50%;width:16px;height:16px;margin-top:-8px;border-radius:50%;background:inherit}
+  .tile::before{content:"";position:absolute;bottom:-9px;left:50%;width:16px;height:16px;margin-left:-8px;border-radius:50%;background:inherit}
+  .tile:hover{transform:translateY(-2px)}
+  .tile small{font-weight:400;font-size:11px;opacity:.85;margin-top:4px}
+  .cust{background:var(--idle)}
+  .cust.draft{background:var(--draft)}
+  .cust.done{background:var(--done);color:#fff}
+  .cust.selected{border-color:var(--active);box-shadow:0 0 0 3px rgba(59,130,246,.35)}
+  .prod{background:var(--prod-off);cursor:default}
+  .prod.on{background:var(--prod-on);color:#fff}
+  .qty{display:flex;align-items:center;gap:6px;margin-top:6px}
+  .qty button{width:28px;height:28px;border:0;border-radius:50%;font-size:18px;cursor:pointer;background:#fff;color:#111;line-height:1}
+  .qty input{width:46px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;padding:4px;font-family:inherit}
+
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  button.btn,label.btn{border:0;border-radius:8px;padding:10px 16px;font-family:inherit;font-size:14px;cursor:pointer;color:#fff;background:var(--active);display:inline-block}
+  .btn.green{background:var(--done)} .btn.gray{background:#64748b} .btn.red{background:#ef4444}
+  button.btn:disabled{opacity:.4;cursor:not-allowed}
+  form.add{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+  form.add input{flex:1;min-width:110px;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-family:inherit}
+  .hint{color:var(--muted);font-size:13px;line-height:1.9}
+  .total{font-weight:800;margin-top:10px}
+  #importMsg{margin-top:8px;font-size:13px}
+
+  #invoice{position:fixed;left:-10000px;top:0;width:794px;background:#fff;color:#000;padding:48px;direction:rtl;font-family:'Vazirmatn',Tahoma,sans-serif}
+  #invoice h1{text-align:center;margin:0 0 20px;font-size:26px}
+  #invoice .info{border:1px solid #999;border-radius:8px;padding:14px;margin-bottom:20px;line-height:2}
+  #invoice table{width:100%;border-collapse:collapse}
+  #invoice th,#invoice td{border:1px solid #999;padding:8px;text-align:center}
+  #invoice th{background:#eee}
+  #invoice .sum{margin-top:16px;font-size:18px;font-weight:800;text-align:left}
+</style>
+</head>
+<body>
+<header>
+  <h1>🧩 سامانه ثبت سفارش مشتریان</h1>
+  <div class="legend">
+    <span><i style="background:var(--idle)"></i>بدون سفارش</span>
+    <span><i style="background:var(--draft)"></i>در حال سفارش</span>
+    <span><i style="background:var(--done)"></i>سفارش ثبت‌شده</span>
+  </div>
+  <span>
+    <span id="status">...</span>
+    <button class="btn gray" id="logoutBtn" hidden style="padding:4px 12px;font-size:12px;margin-right:6px">خروج</button>
+  </span>
+</header>
+
+<div id="login" hidden>
+  <form id="loginForm">
+    <h2>🔒 ورود به سامانه</h2>
+    <input type="email" id="loginEmail" placeholder="ایمیل" required autocomplete="username">
+    <input type="password" id="loginPass" placeholder="رمز عبور" required autocomplete="current-password">
+    <div id="loginErr"></div>
+    <button class="btn" type="submit">ورود</button>
+  </form>
+</div>
+
+<main>
+  <section class="admin-only">
+    <h2>📥 ورود لیست مشتریان و قیمت‌ها از اکسل</h2>
+    <div class="hint">
+      فایل اکسل می‌تواند دو شیت داشته باشد: شیت مشتریان با ستون‌های <b>نام، تلفن، آدرس</b> و شیت محصولات با ستون‌های <b>نام، قیمت</b>.
+      ورود مجدد فایل، موارد هم‌نام را به‌روز می‌کند و سفارش‌های ثبت‌شده را پاک نمی‌کند.
+    </div>
+    <div class="bar">
+      <label class="btn">انتخاب فایل اکسل<input type="file" id="xlsxFile" accept=".xlsx,.xls,.csv" hidden></label>
+      <button class="btn gray" id="tplBtn">دانلود فایل نمونه</button>
+    </div>
+    <div id="importMsg"></div>
+  </section>
+
+  <section>
+    <h2>مشتریان (برای باز شدن محصولات روی مشتری کلیک کنید)</h2>
+    <div class="grid" id="customers"></div>
+    <form class="add admin-only" id="addCustomer">
+      <input name="name" placeholder="نام مشتری" required>
+      <input name="phone" placeholder="تلفن">
+      <input name="address" placeholder="آدرس">
+      <button class="btn gray" type="submit">+ افزودن مشتری</button>
+    </form>
+  </section>
+
+  <section id="productsSection" hidden>
+    <h2 id="prodTitle">محصولات</h2>
+    <div class="grid" id="products"></div>
+    <div class="total" id="total"></div>
+    <div class="bar">
+      <button class="btn" id="saveBtn">✔ ثبت سفارش</button>
+      <button class="btn green" id="pdfBtn">⬇ اتمام سفارش و دریافت PDF</button>
+      <button class="btn red" id="resetBtn">پاک کردن سفارش</button>
+    </div>
+    <form class="add admin-only" id="addProduct">
+      <input name="name" placeholder="نام محصول جدید" required>
+      <input name="price" type="number" min="0" placeholder="قیمت (تومان)" required>
+      <button class="btn gray" type="submit">+ افزودن محصول</button>
+    </form>
+  </section>
+</main>
+<div id="invoice"></div>
+
+<script>
+/* ======================= تنظیمات Firebase =======================
+   مقادیر را از کنسول Firebase کپی کنید (راهنما در README.md).
+   اگر خالی بماند، برنامه در «حالت محلی» (فقط روی همین مرورگر) کار می‌کند. */
+const FIREBASE_CONFIG = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  appId: ""
+};
+/* ================================================================ */
+
+const useFB = !!FIREBASE_CONFIG.apiKey && !!FIREBASE_CONFIG.projectId;
+const LKEY = 'order-app-v2';
+let M = { customers:{}, products:{}, orders:{} };   // customers/products/orders: id -> data
+let selected = null;
+let fdb = null;
+
+const $ = s => document.querySelector(s);
+const fa = n => Number(n).toLocaleString('fa-IR');
+const mkId = (p, name) => p + String(name).trim().replace(/\s+/g,' ').replace(/[\/\.#$\[\]]/g,'_');
+const sorted = col => Object.entries(M[col]).map(([id,d])=>({id,...d})).sort((a,b)=>(a.ord||0)-(b.ord||0));
+const countItems = o => Object.values((o&&o.items)||{}).reduce((a,b)=>a+b,0);
+const calcTotal = o => Object.entries((o&&o.items)||{}).reduce((s,[pid,q])=>{
+  const p = M.products[pid]; return s + (p ? p.price*q : 0);
+},0);
+
+/* ---------- لایه ذخیره‌سازی (Firebase یا محلی) ---------- */
+function persist(){ localStorage.setItem(LKEY, JSON.stringify(M)); }
+async function put(col, id, data){
+  if (useFB) await fdb.collection(col).doc(id).set(data, {merge:false});
+  else { M[col][id] = data; persist(); renderAll(); }
+}
+async function del(col, id){
+  if (useFB) await fdb.collection(col).doc(id).delete();
+  else { delete M[col][id]; persist(); renderAll(); }
+}
+async function putMany(col, list){      // list: [[id,data],...]  (ادغام با داده قبلی)
+  if (useFB){
+    for (let i=0;i<list.length;i+=400){
+      const b = fdb.batch();
+      list.slice(i,i+400).forEach(([id,d])=>b.set(fdb.collection(col).doc(id), d, {merge:true}));
+      await b.commit();
+    }
+  } else {
+    list.forEach(([id,d])=>{ M[col][id] = {...(M[col][id]||{}), ...d}; });
+    persist(); renderAll();
+  }
+}
+
+/* ---------- نمایش ---------- */
+function renderCustomers(){
+  const box = $('#customers'); box.innerHTML = '';
+  const list = sorted('customers');
+  if (!list.length){ box.innerHTML = '<div class="empty">هنوز مشتری‌ای وجود ندارد. فایل اکسل را وارد کنید یا دستی اضافه کنید.</div>'; return; }
+  list.forEach(c=>{
+    const o = M.orders[c.id];
+    let cls = '';
+    if (o && o.status==='done') cls='done';
+    else if (countItems(o)>0) cls='draft';
+    const d = document.createElement('div');
+    d.className = `tile cust ${cls} ${selected===c.id?'selected':''}`;
+    d.innerHTML = `${c.name}<small>${cls==='done'?'✔ ثبت شد':(cls==='draft'?'در حال سفارش':'بدون سفارش')}</small>`;
+    d.onclick = ()=>{ selected=c.id; renderAll(); $('#productsSection').scrollIntoView({behavior:'smooth'}); };
+    box.appendChild(d);
+  });
+}
+
+function renderProducts(){
+  const sec = $('#productsSection');
+  if (!selected || !M.customers[selected]){ sec.hidden = true; return; }
+  sec.hidden = false;
+  const c = M.customers[selected];
+  const o = M.orders[selected] || {items:{}, status:null};
+  $('#prodTitle').textContent = `محصولات سفارش: ${c.name}` + (o.status==='done' ? ' (ثبت‌شده)' : '');
+  const box = $('#products'); box.innerHTML = '';
+  const plist = sorted('products');
+  if (!plist.length) box.innerHTML = '<div class="empty">محصولی وجود ندارد. از اکسل وارد کنید.</div>';
+  plist.forEach(p=>{
+    const q = (o.items||{})[p.id] || 0;
+    const d = document.createElement('div');
+    d.className = 'tile prod' + (q>0?' on':'');
+    d.innerHTML = `${p.name}<small>${fa(p.price)} تومان</small>
+      <div class="qty">
+        <button data-a="minus">−</button>
+        <input type="number" min="0" value="${q}">
+        <button data-a="plus">+</button>
+      </div>`;
+    const setQ = v => {
+      v = Math.max(0, parseInt(v)||0);
+      const items = {...(o.items||{})};
+      if (v>0) items[p.id]=v; else delete items[p.id];
+      const status = Object.keys(items).length ? 'draft' : null;   // ویرایش بعد از ثبت → دوباره «در حال سفارش»
+      if (status) put('orders', selected, {items, status}); else del('orders', selected);
+    };
+    d.querySelector('[data-a=minus]').onclick = ()=>setQ(q-1);
+    d.querySelector('[data-a=plus]').onclick  = ()=>setQ(q+1);
+    d.querySelector('input').onchange = e=>setQ(e.target.value);
+    box.appendChild(d);
+  });
+  $('#total').textContent = `جمع کل: ${fa(calcTotal(o))} تومان  |  تعداد اقلام: ${fa(countItems(o))}`;
+  $('#saveBtn').disabled = countItems(o)===0;
+  $('#pdfBtn').disabled  = countItems(o)===0;
+}
+let isAdmin = !useFB;     // در حالت محلی همه‌چیز آزاد است
+function renderAll(){
+  document.querySelectorAll('.admin-only').forEach(el=>el.hidden = !isAdmin);
+  renderCustomers(); renderProducts();
+}
+
+/* ---------- عملیات ---------- */
+$('#saveBtn').onclick = ()=>{
+  const o = M.orders[selected];
+  if (!countItems(o)) return;
+  put('orders', selected, {items:o.items, status:'done'});
+};
+$('#resetBtn').onclick = ()=>{
+  if (confirm('سفارش این مشتری پاک شود؟')) del('orders', selected);
+};
+$('#addCustomer').onsubmit = e=>{
+  e.preventDefault();
+  const f = new FormData(e.target), name = f.get('name').trim();
+  put('customers', mkId('c_',name), {name, phone:f.get('phone')||'', address:f.get('address')||'', ord:Date.now()});
+  e.target.reset();
+};
+$('#addProduct').onsubmit = e=>{
+  e.preventDefault();
+  const f = new FormData(e.target), name = f.get('name').trim();
+  put('products', mkId('p_',name), {name, price:Number(f.get('price')), ord:Date.now()});
+  e.target.reset();
+};
+
+/* ---------- اکسل ---------- */
+const digits = s => String(s)
+  .replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+  .replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+const toNum = v => parseFloat(digits(v).replace(/[,٬،\s]/g,'')) || 0;
+const pick = (row, re) => { for (const k of Object.keys(row)) if (re.test(k.trim())) return String(row[k]).trim(); return ''; };
+
+$('#xlsxFile').onchange = async e=>{
+  const file = e.target.files[0]; if (!file) return;
+  const msg = $('#importMsg'); msg.textContent = 'در حال خواندن فایل...';
+  try{
+    const wb = XLSX.read(await file.arrayBuffer(), {type:'array'});
+    const base = Date.now();
+    let cList = [], pList = [];
+    wb.SheetNames.forEach(sn=>{
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {defval:''});
+      if (!rows.length) return;
+      const hasPrice = Object.keys(rows[0]).some(k=>/قیمت|price/i.test(k));
+      rows.forEach((r,i)=>{
+        const name = pick(r, /نام|مشتری|محصول|name|customer|product/i);
+        if (!name) return;
+        if (hasPrice) pList.push([mkId('p_',name), {name, price:toNum(pick(r,/قیمت|price/i)), ord:base+i}]);
+        else cList.push([mkId('c_',name), {name, phone:pick(r,/تلفن|موبایل|phone|mobile/i), address:pick(r,/آدرس|address/i), ord:base+i}]);
+      });
+    });
+    if (!cList.length && !pList.length){ msg.textContent = '⚠ داده‌ای پیدا نشد. ستون‌های «نام» و «قیمت» را بررسی کنید.'; return; }
+    if (cList.length) await putMany('customers', cList);
+    if (pList.length) await putMany('products', pList);
+    msg.textContent = `✔ ${fa(cList.length)} مشتری و ${fa(pList.length)} محصول وارد/به‌روز شد.`;
+  }catch(err){ msg.textContent = '⚠ خطا در خواندن فایل: ' + err.message; }
+  e.target.value = '';
+};
+$('#tplBtn').onclick = ()=>{
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['نام','تلفن','آدرس'],['علی احمدی','09120000001','تهران'],['مریم رضایی','09120000002','اصفهان']]), 'مشتریان');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['نام','قیمت'],['محصول الف',50000],['محصول ب',120000]]), 'محصولات');
+  XLSX.writeFile(wb, 'نمونه-ورود-اطلاعات.xlsx');
+};
+
+/* ---------- PDF ---------- */
+$('#pdfBtn').onclick = async ()=>{
+  const c = M.customers[selected];
+  const o = M.orders[selected];
+  if (!countItems(o)) return;
+  await put('orders', selected, {items:o.items, status:'done'});   // اتمام سفارش = ثبت نهایی
+
+  const rows = Object.entries(o.items).map(([pid,q],i)=>{
+    const p = M.products[pid]; if (!p) return '';
+    return `<tr><td>${fa(i+1)}</td><td>${p.name}</td><td>${fa(q)}</td><td>${fa(p.price)}</td><td>${fa(p.price*q)}</td></tr>`;
+  }).join('');
+  const now = new Date();
+  const date = now.toLocaleDateString('fa-IR') + ' - ' + now.toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'});
+  $('#invoice').innerHTML = `
+    <h1>فاکتور سفارش</h1>
+    <div class="info">
+      <div><b>نام مشتری:</b> ${c.name}</div>
+      <div><b>تلفن:</b> ${c.phone||'-'}</div>
+      <div><b>آدرس:</b> ${c.address||'-'}</div>
+      <div><b>تاریخ:</b> ${date}</div>
+    </div>
+    <table>
+      <thead><tr><th>ردیف</th><th>محصول</th><th>تعداد</th><th>قیمت واحد (تومان)</th><th>جمع (تومان)</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="sum">جمع کل: ${fa(calcTotal(o))} تومان</div>`;
+  try{
+    await document.fonts.ready;
+    const canvas = await html2canvas($('#invoice'), {scale:2, backgroundColor:'#fff'});
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p','mm','a4');
+    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+    const imgH = canvas.height * pw / canvas.width;
+    for (let y=0, first=true; y<imgH; y+=ph, first=false){
+      const sliceH = Math.min(ph, imgH-y);
+      const part = document.createElement('canvas');
+      part.width = canvas.width; part.height = Math.round(sliceH*canvas.width/pw);
+      part.getContext('2d').drawImage(canvas,0,Math.round(y*canvas.width/pw),canvas.width,part.height,0,0,canvas.width,part.height);
+      if (!first) pdf.addPage();
+      pdf.addImage(part.toDataURL('image/jpeg',0.95),'JPEG',0,0,pw,sliceH);
+    }
+    pdf.save(`سفارش - ${c.name}${c.phone?' - '+c.phone:''}.pdf`);
+  }catch(err){ alert('خطا در ساخت PDF: '+err.message); }
+};
+
+/* ---------- شروع ---------- */
+const setStatus = (t,c)=>{ const s=$('#status'); s.textContent=t; s.style.background=c; };
+if (useFB){
+  firebase.initializeApp(FIREBASE_CONFIG);
+  fdb = firebase.firestore();
+  const auth = firebase.auth();
+  let unsubs = [];
+  $('#login').hidden = false;                       // تا وقتی وارد نشده، همه‌چیز پنهان است
+  setStatus('🔒 وارد نشده', '#334155');
+
+  const authErr = code => ({
+    'auth/invalid-credential':'ایمیل یا رمز عبور اشتباه است.',
+    'auth/wrong-password':'ایمیل یا رمز عبور اشتباه است.',
+    'auth/user-not-found':'ایمیل یا رمز عبور اشتباه است.',
+    'auth/invalid-email':'ایمیل معتبر نیست.',
+    'auth/too-many-requests':'تلاش بیش از حد؛ چند دقیقه بعد دوباره امتحان کنید.',
+    'auth/network-request-failed':'اتصال اینترنت را بررسی کنید.'
+  }[code] || ('خطا: ' + code));
+
+  $('#loginForm').onsubmit = async e=>{
+    e.preventDefault();
+    $('#loginErr').textContent = '';
+    try{ await auth.signInWithEmailAndPassword($('#loginEmail').value.trim(), $('#loginPass').value); }
+    catch(err){ $('#loginErr').textContent = authErr(err.code); }
+  };
+  $('#logoutBtn').onclick = ()=>auth.signOut();
+
+  auth.onAuthStateChanged(async user=>{
+    unsubs.forEach(u=>u()); unsubs = [];
+    isAdmin = false;
+    M = {customers:{}, products:{}, orders:{}}; selected = null; renderAll();
+    if (!user){
+      $('#login').hidden = false; $('#logoutBtn').hidden = true;
+      $('#loginPass').value = '';
+      setStatus('🔒 وارد نشده', '#334155');
+      return;
+    }
+    // نقش کاربر از users/{uid} خوانده می‌شود: admin یا seller
+    let role = null;
+    try{ const s = await fdb.collection('users').doc(user.uid).get(); role = s.exists ? s.data().role : null; }catch(e){}
+    if (role !== 'admin' && role !== 'seller'){
+      await auth.signOut();
+      $('#loginErr').textContent = 'برای این حساب نقشی تعریف نشده است. با مدیر تماس بگیرید.';
+      return;
+    }
+    isAdmin = (role === 'admin');
+    renderAll();
+    $('#login').hidden = true; $('#logoutBtn').hidden = false;
+    setStatus('⏳ در حال اتصال...', '#334155');
+    unsubs = ['customers','products','orders'].map(col=>
+      fdb.collection(col).onSnapshot(snap=>{
+        M[col] = {}; snap.forEach(d=>M[col][d.id]=d.data());
+        setStatus('🟢 ' + (isAdmin?'مدیر':'فروشنده') + ': ' + user.email, '#15803d');
+        renderAll();
+      }, err=>setStatus('🔴 خطای اتصال: '+err.code, '#b91c1c'))
+    );
+  });
+} else {
+  M = JSON.parse(localStorage.getItem(LKEY) || 'null') || M;
+  setStatus('🟠 حالت محلی (اشتراک‌گذاری فعال نیست)', '#b45309');
+  renderAll();
+}
+</script>
+</body>
+</html>
